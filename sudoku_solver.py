@@ -35,57 +35,74 @@ def _peers(n, box_h, box_w, r, c):
 
 
 def build_general_kb(n, box_h, box_w, givens):
-    """Return a PropKB containing the standard Sudoku constraints and givens.
+    """Return a PropKB encoding this n x n Sudoku's constraints plus the given
+    cells, as general clauses.
 
-    The general representation uses ``Is_r_c_v`` propositions directly:
-    * one positive disjunction per cell for at-least-one value;
-    * binary negative clauses for at-most-one value in a cell;
-    * binary negative clauses for row/column/box uniqueness;
-    * one unit positive clause for every given.
+    Parameters
+    ----------
+    n, box_h, box_w : int
+    givens : dict[(int, int), int]
+
+    Returns
+    -------
+    PropKB
     """
-    kb = PropKB()
-    is_atom, _ = _atom_table(n)
 
-    # 1. Every cell has at least one value.
-    #run through all the cells, iterate through all the possible values v check for available values
-    #it is OK For now if there are more than 1 value in the cell detected. this is not this function to check.
-    for r in range(1, n + 1):
-        for c in range(1, n + 1):
-            kb.tell(associate('|', [is_atom[(r, c, v)]
-                                    for v in range(1, n + 1)]))
+    kb = PropKB() 
 
-    # 2. Every cell has at most one value.
-    #for each of the cell, text each possible value _1 to _9. 
-    #uses a "step ahead" appraoch as to reduce overlapping checks
-    #comapre v1 with v2 using disjunction one pair at a time, if v1 is true then v2 must be false and vice versa.
-    for r in range(1, n + 1):
-        for c in range(1, n + 1):
-            for v1 in range(1, n + 1):
-                for v2 in range(v1 + 1, n + 1): #step ahead from v1 to avoid overlapping checks
-                    kb.tell(~is_atom[(r, c, v1)] |
-                            ~is_atom[(r, c, v2)])
+    #1. Every cell has at least one value from {1, . . . , n}.
+    for r in range (1, n + 1):
+      for c in range(1, n + 1):
+        kb.tell(Expr('|', *[atom('Is', r, c, v) for v in range (1, n + 1)]))
+  
+    #2. Every cell has at most one value from {1, . . . , n}. (no cell holds two digits at once
+    for r in range(1, n+1):
+      for c in range(1, n+1):
+        for v in range(1, n+1):
+          for v1 in range(v+1, n+1):
+            kb.tell(~atom('Is', r, c, v) | ~atom('Is', r, c, v1))
+    
+    #3. No two cells in the same row hold the same value
+    for r in range(1, n+1):
+      for c in range(1, n+1):
+        for c1 in range(c+1, n+1):
+          for v in range(1, n+1):
+            kb.tell(~atom('Is', r, c, v) | ~atom('Is', r, c1, v))
 
-    # 3-5. Equal values cannot occur in peer cells.  
-    #improved to combine step 3-5 for optimisation
-    # unordered peer pair only once avoids duplicate clauses. This is to optimise performance
-    seen = set()
-    for r in range(1, n + 1):
-        for c in range(1, n + 1):
-            for rr, cc in _peers(n, box_h, box_w, r, c):
-                pair = tuple(sorted(((r, c), (rr, cc))))
-                if pair in seen:
-                    continue #skip if pair already process before
-                seen.add(pair)
-                (r1, c1), (r2, c2) = pair
-                for v in range(1, n + 1): #using same disjunction approach to ensure that if v is true in one cell then it must be false in the other cell
-                    kb.tell(~is_atom[(r1, c1, v)] |
-                            ~is_atom[(r2, c2, v)])
+    #4 No two cells in the same column hold the same value.
+    for r in range(1, n+1):
+      for r1 in range(r+1, n+1):
+        for c in range(1, n+1):
+          for v in range(1, n+1):
+            kb.tell(~atom('Is', r, c, v) | ~atom('Is', r1, c, v))
 
-    # 6. Givens are facts.
+    #5 No two cells in the same box hold the same value.
+    #Trace from first cell of every box
+    for r in range(1, n-1, box_h):
+      for c in range(1, n-1, box_w):
+        #trace each cell in the box and stack
+        #Stack each cell into a linear list
+        linearCells = []
+        for rBox in range(r,r + box_h):
+          for cBox in range (c,c + box_w):
+            linearCells.append((rBox, cBox))
+        #print(f"liner box: {linearCells}")
+        for c in range (0, n):
+          for c1 in range (c+1, n):
+            #for v in range(1, n+1):
+            (rAnchor, cAchor) = linearCells[c]
+            (rCompare, cCompare) = linearCells[c1]
+            #print(f"lhs{rAnchor, cAchor}, rhs:{rCompare,cCompare}, {c,c1}")
+            for v in range(1, n+1):
+              kb.tell(~atom('Is', rAnchor, cAchor, v) | ~atom('Is', rCompare, cCompare, v))
+            
+
+
     for (r, c), v in givens.items():
-        kb.tell(is_atom[(r, c, v)])
+      kb.tell(atom('Is', r, c, v))
 
     return kb
+    
 
 
 
@@ -102,19 +119,18 @@ def build_definite_kb(n, box_h, box_w, givens):
     for (r, c), v in givens.items():
         kb.tell(atom('Is', r, c, v))
 
-    #combined steps 1-5 into one loop to reduce the number of iterations and improve performance
     for r in range(1, n + 1):
         for c in range(1, n + 1):
             for v in range(1, n + 1):
                 is_rcv = atom('Is', r, c, v)
 
-                #1 At most one value per cell:
-                # Is(r,c,v) ==> Not(r,c,other_v). Introduce a new Not variable to create horn clause
+                # At most one value per cell:
+                # Is(r,c,v) ==> Not(r,c,other_v).
                 for other_v in range(1, n + 1):
                     if other_v != v:
                         kb.tell(Expr('==>', is_rcv, atom('Not', r, c, other_v)))
 
-                #2-5 Row/column/box uniqueness:
+                # Row/column/box uniqueness:
                 # Is(r,c,v) ==> peers cannot also contain v.
                 for rr, cc in _peers(n, box_h, box_w, r, c):
                     kb.tell(Expr('==>', is_rcv, atom('Not', rr, cc, v)))
