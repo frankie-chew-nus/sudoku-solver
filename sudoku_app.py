@@ -28,14 +28,14 @@ box_h = pool["box_h"]
 box_w = pool["box_w"]
 puzzles = pool["puzzles"]
 
-
+# Process the givens from selected puzzle into a dictionary mapping (row, col) to value for easier access
 def convert_givens(raw_givens):
     return {
         tuple(map(int, key.split("_"))): int(value)
         for key, value in raw_givens.items()
     }
 
-
+#create visual representation of the sudoku board using HTML and CSS
 def board_as_html(board, givens=None):
     """Render a board using theme-aware text/background colours."""
     givens = givens or {}
@@ -77,7 +77,7 @@ def board_as_html(board, givens=None):
 def show_board(board, givens=None):
     st.markdown(board_as_html(board, givens), unsafe_allow_html=True)
 
-
+#convert a proposition into a human-readable string for display in the reasoning trace
 def decode_atom(proposition):
     name = proposition.op
     if name.startswith("Is"):
@@ -93,7 +93,7 @@ def decode_atom(proposition):
     except ValueError:
         return None
 
-
+#display a human-readable string for a proposition, such as "cell (r, c) has value v" or "value v is eliminated from cell (r, c)"
 def proposition_text(proposition):
     decoded = decode_atom(proposition)
     if decoded is None:
@@ -104,7 +104,7 @@ def proposition_text(proposition):
         return f"cell ({r}, {c}) has value {v}"
     return f"value {v} is eliminated from cell ({r}, {c})"
 
-
+#detailed reasoning trace for a backward-chaining proof, showing the premises and conclusion for each step
 def explain_rule(premises, conclusion):
     conclusion_info = decode_atom(conclusion)
     if conclusion_info is None:
@@ -158,7 +158,7 @@ def explain_rule(premises, conclusion):
     premise_text = "; ".join(proposition_text(p) for p in premises)
     return f"Because {premise_text}, infer that {proposition_text(conclusion)}."
 
-
+#perform backward-chaining with a reasoning trace, showing the steps taken to prove a query from the knowledge base
 def backward_chain_with_trace(kb, query):
     """Multi-pass BC trace matching the core solver's retry behaviour.
 
@@ -168,6 +168,7 @@ def backward_chain_with_trace(kb, query):
     facts = set()
     rules_by_conclusion = {}
 
+    #for each clause in the knowledge base, parse it into premises and conclusion, and store them in the appropriate data structures
     for clause in kb.clauses:
         premises, conclusion = parse_definite_clause(clause)
         if not premises:
@@ -178,6 +179,7 @@ def backward_chain_with_trace(kb, query):
     proved = set(facts)
     witness = {fact: ("fact", []) for fact in facts}
 
+    #loop until we have proved the query or we have exhausted all possibilities
     while True:
         before = len(proved)
         failed_this_pass = set()
@@ -211,6 +213,7 @@ def backward_chain_with_trace(kb, query):
     trace = []
     emitted = set()
 
+    #build a reasoning trace by recursively following the witnesses for each proved goal, starting from the query, and adding each step to the trace
     def build_trace(goal):
         if goal in emitted:
             return
@@ -228,7 +231,7 @@ def backward_chain_with_trace(kb, query):
     build_trace(query)
     return True, trace
 
-
+#display a human-readable reasoning trace for a backward-chaining proof, showing the steps taken to prove a query from the knowledge base
 def display_reasoning_trace(trace, query):
     if not trace:
         st.info(

@@ -13,7 +13,7 @@ def atom(prefix, r, c, v):
     """prefix is 'Is' or 'Not'. Returns the Expr for e.g. Is3_2_4."""
     return expr(f'{prefix}{r}_{c}_{v}')
 
-
+#build the relationship between cells so to optimise checking of uniqueness and relative constraints
 def _peers(n, box_h, box_w, r, c):
     """Return the cells sharing a row, column, or box with (r, c)."""
     peers = set()
@@ -51,11 +51,15 @@ def build_general_kb(n, box_h, box_w, givens):
     kb = PropKB() 
 
     #1. Every cell has at least one value from {1, . . . , n}.
+    #loop through each cell and stack the possible values into a disjunction, no repeated values for a cell
     for r in range (1, n + 1):
       for c in range(1, n + 1):
         kb.tell(Expr('|', *[atom('Is', r, c, v) for v in range (1, n + 1)]))
   
     #2. Every cell has at most one value from {1, . . . , n}. (no cell holds two digits at once
+    #loop through each cell and stack the possible values into a disjunction of negated values. 
+    #no 2 values can be true at the same time for a cell
+    #combined with #1 to enforece that each cell has exactly one value
     for r in range(1, n+1):
       for c in range(1, n+1):
         for v in range(1, n+1):
@@ -63,6 +67,7 @@ def build_general_kb(n, box_h, box_w, givens):
             kb.tell(~atom('Is', r, c, v) | ~atom('Is', r, c, v1))
     
     #3. No two cells in the same row hold the same value
+    # loop through each row and stack the possible values into a disjunction of negated values to ensure no 2 values can be true at the same time for the stack
     for r in range(1, n+1):
       for c in range(1, n+1):
         for c1 in range(c+1, n+1):
@@ -70,6 +75,7 @@ def build_general_kb(n, box_h, box_w, givens):
             kb.tell(~atom('Is', r, c, v) | ~atom('Is', r, c1, v))
 
     #4 No two cells in the same column hold the same value.
+    # loop through each column and stack the possible values into a disjunction of negated values to ensure no 2 values can be true at the same time for the column
     for r in range(1, n+1):
       for r1 in range(r+1, n+1):
         for c in range(1, n+1):
@@ -77,7 +83,7 @@ def build_general_kb(n, box_h, box_w, givens):
             kb.tell(~atom('Is', r, c, v) | ~atom('Is', r1, c, v))
 
     #5 No two cells in the same box hold the same value.
-    #Trace from first cell of every box
+    #Trace from first cell of every box, put the 3x3 cells into a linear list, then stack the possible values into a disjunction of negated values to ensure no 2 values can be true at the same time for the box
     for r in range(1, n-1, box_h):
       for c in range(1, n-1, box_w):
         #trace each cell in the box and stack
@@ -158,8 +164,8 @@ def build_definite_kb(n, box_h, box_w, givens):
 def solve_full_grid_fc(n, box_h, box_w, givens):
     """Solve every cell using the definite KB and library forward chaining."""
     kb = build_definite_kb(n, box_h, box_w, givens)
-    solved = {}
-
+    solved = {} #holds the solved values for each cell to be returned at the end of the function
+    # solve each cell by checking if the knowledge base entails that a certain value is in that cell
     for r in range(1, n + 1):
         for c in range(1, n + 1):
             for v in range(1, n + 1):
@@ -180,6 +186,7 @@ def pl_bc_entails(kb, query):
     Passes repeat while new goals are proved, which reaches the least Horn
     fixed point while retaining backward, query-directed rule exploration.
     """
+    #compile the knowledge base into a set of facts and a mapping from conclusions to rules
     compiled = getattr(kb, '_bc_compiled', None)
     if compiled is None:
         facts = set()
@@ -194,15 +201,17 @@ def pl_bc_entails(kb, query):
         kb._bc_compiled = compiled
     facts, rules_by_conclusion = compiled
 
+    #if we have already proved some goals, use that set; otherwise, start with the given facts
     proved = getattr(kb, '_bc_proved', None)
     if proved is None:
         proved = set(facts)
         kb._bc_proved = proved
 
+    #loop until we have proved the query or we have exhausted all possibilities
     while True:
         before = len(proved)
         failed_this_pass = set()
-        active = set()
+        active = set() #list of goals currently being proved, to detect cycles and expanded if related
 
         def prove(goal):
             if goal in proved:
@@ -232,7 +241,7 @@ def solve_full_grid_bc(n, box_h, box_w, givens):
     """Solve every cell using the definite KB and backward chaining."""
     kb = build_definite_kb(n, box_h, box_w, givens)
     solved = {}
-
+    #iterate through each cell and check if the knowledge base entails that a certain value is in that cell using backward chaining
     for r in range(1, n + 1):
         for c in range(1, n + 1):
             for v in range(1, n + 1):
